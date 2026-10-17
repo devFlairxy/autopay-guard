@@ -38,4 +38,9 @@ export default defineConfig({
     allowedHosts: true,
     cors: true,
   },
+  preview: {
+    // SPA fallback for /app deep links during local preview
+    port: 4173,
+  },
+  appType: 'spa',
 })

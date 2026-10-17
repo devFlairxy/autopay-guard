@@ -3,7 +3,6 @@ import { ConnectKitButton } from 'connectkit'
 import { Shield, LayoutDashboard, Settings, Zap, Clock, Code2 } from 'lucide-react'
 import { activeArcChain } from './config'
 
-import { LandingPage } from './components/LandingPage'
 import { OverviewScreen } from './components/OverviewScreen'
 import { ConfigureScreen } from './components/ConfigureScreen'
 import { AgentPayScreen } from './components/AgentPayScreen'
@@ -27,12 +26,7 @@ const NAV: NavItem[] = [
 ]
 
 export default function App() {
-  const [inApp, setInApp] = useState(false)
   const [screen, setScreen] = useState<Screen>('overview')
-
-  if (!inApp) {
-    return <LandingPage onEnterApp={() => setInApp(true)} />
-  }
 
   return (
     <div className="min-h-dvh" style={{ background: 'var(--bg-gradient)' }}>
@@ -40,42 +34,40 @@ export default function App() {
       <header
         className="sticky top-0 z-30 border-b"
         style={{
-          background: 'rgba(13,27,47,0.85)',
+          background: 'rgba(7,11,18,0.88)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          borderColor: 'rgba(255,255,255,0.1)',
+          borderColor: 'var(--border)',
         }}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex size-8 items-center justify-center rounded-xl"
-              style={{ background: 'rgba(172,198,233,0.15)', border: '1px solid rgba(172,198,233,0.25)' }}
+            <a
+              href="/"
+              className="flex items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{ outlineColor: 'var(--accent)' }}
+              aria-label="Back to AgentPay Guard homepage"
             >
-              <Shield className="size-4" style={{ color: 'var(--accent)' }} />
-            </div>
-            <div>
-              <span className="display text-base font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>
-                AgentPay Guard
-              </span>
-              <span
-                className="hidden sm:inline-flex ml-2 rounded-full px-2 py-0.5 text-xs font-semibold"
-                style={{ background: 'rgba(172,198,233,0.1)', color: 'var(--accent)' }}
+              <div
+                className="flex size-8 items-center justify-center rounded-md"
+                style={{ background: 'var(--accent-soft)', border: '1px solid rgba(74,158,255,0.28)' }}
               >
-                {activeArcChain.name}
-              </span>
-            </div>
+                <Shield className="size-4" style={{ color: 'var(--accent)' }} />
+              </div>
+              <div>
+                <span className="display text-base font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>
+                  AgentPay Guard
+                </span>
+                <span
+                  className="hidden sm:inline-flex ml-2 rounded-full px-2 py-0.5 text-xs font-semibold"
+                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                >
+                  {activeArcChain.name}
+                </span>
+              </div>
+            </a>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setInApp(false)}
-              className="hidden sm:flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5 transition-all"
-              style={{ color: 'var(--subtle)', border: '1px solid rgba(255,255,255,0.1)' }}
-            >
-              ← Back
-            </button>
-            <ConnectKitButton />
-          </div>
+          <ConnectKitButton />
         </div>
       </header>
 
@@ -91,9 +83,9 @@ export default function App() {
                 onClick={() => setScreen(id)}
                 className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all text-left"
                 style={{
-                  background: screen === id ? 'rgba(172,198,233,0.15)' : 'transparent',
+                  background: screen === id ? 'var(--accent-soft)' : 'transparent',
                   color: screen === id ? 'var(--accent)' : 'var(--subtle)',
-                  border: screen === id ? '1px solid rgba(172,198,233,0.25)' : '1px solid transparent',
+                  border: screen === id ? '1px solid rgba(74,158,255,0.28)' : '1px solid transparent',
                 }}
               >
                 {icon}
@@ -113,9 +105,9 @@ export default function App() {
                 onClick={() => setScreen(id)}
                 className="flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold"
                 style={{
-                  background: screen === id ? 'rgba(172,198,233,0.15)' : 'rgba(255,255,255,0.06)',
+                  background: screen === id ? 'var(--accent-soft)' : 'rgba(255,255,255,0.06)',
                   color: screen === id ? 'var(--accent)' : 'var(--subtle)',
-                  border: screen === id ? '1px solid rgba(172,198,233,0.25)' : '1px solid rgba(255,255,255,0.1)',
+                  border: screen === id ? '1px solid rgba(74,158,255,0.28)' : '1px solid var(--border)',
                 }}
               >
                 {icon}

@@ -1,11 +1,11 @@
 /**
  * AgentBudgetVault contract configuration.
- * Set VITE_TARGET_CHAIN=mainnet in .env to switch to Arc mainnet.
+ * Set VITE_TARGET_CHAIN=testnet in .env to switch to Arc testnet (default: mainnet).
  * Set VITE_VAULT_ADDRESS to override the default address for either network.
  */
 import artifact from '../contracts/out/AgentBudgetVault.sol/AgentBudgetVault.json'
 
-const targetChain = (import.meta.env.VITE_TARGET_CHAIN as string | undefined) ?? 'testnet'
+const targetChain = (import.meta.env.VITE_TARGET_CHAIN as string | undefined) ?? 'mainnet'
 export const IS_MAINNET = targetChain === 'mainnet'
 
 // Default addresses per network
