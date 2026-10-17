@@ -505,3 +505,7 @@
 {"type":"event","event":{"event":{"kind":"rpc","id":"8d5b933c-2","timestamp":1792224799230,"method":"isDefaultWallet","params":[],"chainId":0,"result":true,"duration":23},"enrichmentStatus":"none"}}
 {"type":"event","event":{"event":{"kind":"rpc","id":"8d5b933c-3","timestamp":1792224799332,"method":"eth_accounts","params":[],"chainId":0,"error":"[object Object]","duration":3},"enrichmentStatus":"none"}}
 {"type":"event","event":{"event":{"kind":"rpc","id":"8d5b933c-4","timestamp":1792224799436,"method":"eth_accounts","params":[],"chainId":0,"error":"[object Object]","duration":4},"enrichmentStatus":"none"}}
+{"type":"event","event":{"event":{"kind":"rpc","id":"d5dc7392-1","timestamp":1792226002764,"method":"eth_accounts","params":[],"chainId":0,"error":"[object Object]","duration":13323},"enrichmentStatus":"none"}}
+{"type":"event","event":{"event":{"kind":"rpc","id":"d5dc7392-2","timestamp":1792226016081,"method":"isDefaultWallet","params":[],"chainId":0,"result":true,"duration":37},"enrichmentStatus":"none"}}
+{"type":"event","event":{"event":{"kind":"rpc","id":"d5dc7392-3","timestamp":1792226016188,"method":"eth_accounts","params":[],"chainId":0,"error":"[object Object]","duration":17},"enrichmentStatus":"none"}}
+{"type":"event","event":{"event":{"kind":"rpc","id":"d5dc7392-4","timestamp":1792226016314,"method":"eth_accounts","params":[],"chainId":0,"error":"[object Object]","duration":2},"enrichmentStatus":"none"}}
