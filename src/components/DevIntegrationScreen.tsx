@@ -88,7 +88,7 @@ interface IAgentBudgetVault {
 
 const tsIntegration = `import { createPublicClient, createWalletClient, http, parseUnits, keccak256, toBytes } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { arcTestnet } from 'viem/chains'
+import { arc } from 'viem/chains'
 
 const VAULT_ADDRESS = '${VAULT_ADDRESS}'
 
@@ -111,7 +111,7 @@ const account = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY as \`0x\${stri
 
 const walletClient = createWalletClient({
   account,
-  chain: arcTestnet,
+  chain: arc,
   transport: http(),
 })
 
@@ -182,7 +182,7 @@ export function DevIntegrationScreen() {
         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
       >
         <div className="min-w-0">
-          <p className="text-xs" style={{ color: 'var(--subtle)' }}>Vault address (Arc Testnet)</p>
+          <p className="text-xs" style={{ color: 'var(--subtle)' }}>Vault address (Arc Mainnet)</p>
           <p className="mono text-sm truncate" style={{ color: 'var(--ink)' }}>{VAULT_ADDRESS}</p>
         </div>
         <CopyButton text={VAULT_ADDRESS} />

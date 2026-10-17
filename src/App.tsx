@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { ConnectKitButton } from 'connectkit'
 import { Shield, LayoutDashboard, Settings, Zap, Clock, Code2 } from 'lucide-react'
+import { activeArcChain } from './config'
 
+import { LandingPage } from './components/LandingPage'
 import { OverviewScreen } from './components/OverviewScreen'
 import { ConfigureScreen } from './components/ConfigureScreen'
 import { AgentPayScreen } from './components/AgentPayScreen'
@@ -25,7 +27,12 @@ const NAV: NavItem[] = [
 ]
 
 export default function App() {
+  const [inApp, setInApp] = useState(false)
   const [screen, setScreen] = useState<Screen>('overview')
+
+  if (!inApp) {
+    return <LandingPage onEnterApp={() => setInApp(true)} />
+  }
 
   return (
     <div className="min-h-dvh" style={{ background: 'var(--bg-gradient)' }}>
@@ -55,11 +62,20 @@ export default function App() {
                 className="hidden sm:inline-flex ml-2 rounded-full px-2 py-0.5 text-xs font-semibold"
                 style={{ background: 'rgba(172,198,233,0.1)', color: 'var(--accent)' }}
               >
-                Arc Testnet
+                {activeArcChain.name}
               </span>
             </div>
           </div>
-          <ConnectKitButton />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setInApp(false)}
+              className="hidden sm:flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5 transition-all"
+              style={{ color: 'var(--subtle)', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              ← Back
+            </button>
+            <ConnectKitButton />
+          </div>
         </div>
       </header>
 

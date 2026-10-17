@@ -1,13 +1,27 @@
 {
-  "contractAddress": "0x3de92200857fe6e51e1e10a7f712a6527125ed56",
+  "contractAddress": "0x0b5fbc47d5ec3786eafce95fc72b9095294e9964",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AgentBudgetVault.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AgentBudgetVault.sol/AgentBudgetVault.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x3de92200857fe6e51e1e10a7f712a6527125ed56"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x0b5fbc47d5ec3786eafce95fc72b9095294e9964"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x0b5fbc47d5ec3786eafce95fc72b9095294e9964",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x0b5fbc47d5ec3786eafce95fc72b9095294e9964",
+      "txHash": "0x63442cb8c30cc5b060f1cabb363547d6563f85428d09b51591e8223ebb7f9d29",
+      "deployedAt": "2026-10-16T01:59:34.753Z"
+    },
+    {
+      "chain": "Arc Testnet",
+      "address": "0x974d2bae551e668a4dbbd2330e4c04a6f2e76003",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x974d2bae551e668a4dbbd2330e4c04a6f2e76003",
+      "txHash": "0xd347bb95189d554df8bfecc551854a265fed47083a1830a40c456841c3f834bf",
+      "deployedAt": "2026-10-16T00:49:16.898Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x3de92200857fe6e51e1e10a7f712a6527125ed56",
@@ -26,7 +40,7 @@
           "internalType": "address"
         },
         {
-          "name": "_owner",
+          "name": "initialOwner_",
           "type": "address",
           "internalType": "address"
         },
@@ -698,6 +712,11 @@
     },
     {
       "type": "error",
+      "name": "SpendingLimitBelowMaxPayment",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "SpendingLimitBelowTotalSpent",
       "inputs": []
     },
@@ -714,6 +733,11 @@
     {
       "type": "error",
       "name": "ZeroAmount",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ZeroJobReference",
       "inputs": []
     }
   ]

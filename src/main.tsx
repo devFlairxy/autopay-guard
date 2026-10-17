@@ -41,7 +41,7 @@ const StudioWatermark = () => (
     style={{
       position: 'fixed',
       bottom: '16px',
-      right: '16px',
+      left: '16px',
       display: 'flex',
       alignItems: 'center',
       gap: '6px',

@@ -1,12 +1,12 @@
-import { arcTestnet } from 'viem/chains'
 import { createPublicClient, http, parseAbiItem } from 'viem'
-import { useEffect, useState } from 'react'
-import { ArrowUpRight, Loader2 } from 'lucide-react'
-import { AGENT_BUDGET_VAULT } from '../contract'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowUpRight, Loader2, RefreshCw } from 'lucide-react'
+import { AGENT_BUDGET_VAULT, VAULT_DEPLOY_BLOCK, EXPLORER_BASE, IS_MAINNET } from '../contract'
+import { activeArcChain } from '../config'
 import { Amount, usdcDecimalsFor } from '@/onchain-money'
 import { requireChain } from '@/onchain-facts'
 
-const TARGET_CHAIN = arcTestnet.id
+const TARGET_CHAIN = activeArcChain.id
 const chainFact = requireChain(TARGET_CHAIN)
 
 function formatUsdc(raw: bigint): string {
@@ -37,60 +37,139 @@ const agentPaymentEvent = parseAbiItem(
 export function HistoryScreen() {
   const [events, setEvents] = useState<PaymentEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const cancelRef = useRef(false)
 
-  useEffect(() => {
-    let cancelled = false
-    async function fetchEvents() {
-      setLoading(true)
-      setError(null)
-      try {
-        const client = createPublicClient({
-          chain: arcTestnet,
-          transport: http(chainFact.rpcUrls[0]),
-        })
-        const logs = await client.getLogs({
-          address: AGENT_BUDGET_VAULT.address,
-          event: agentPaymentEvent,
-          fromBlock: 0n,
-          toBlock: 'latest',
-        })
-        if (!cancelled) {
-          const parsed: PaymentEvent[] = logs.map((log) => ({
+  // Arc RPC rejects getLogs ranges larger than ~5 000 blocks and rate-limits
+  // rapid repeated calls. Strategy:
+  // - Fetch once on mount (from deploy block to latest).
+  // - Cache results; on manual refresh only scan blocks newer than the cache.
+  // - No automatic polling interval — history only loads on user action.
+  // - Exponential backoff on 429: wait 2s, 4s, 8s then give up.
+  const CHUNK = 2_000n   // conservative — well under the 5000-block limit
+  const lastScannedRef = useRef<bigint>(VAULT_DEPLOY_BLOCK - 1n)
+  const cachedEventsRef = useRef<PaymentEvent[]>([])
+
+  const fetchEvents = useCallback(async (silent = false) => {
+    cancelRef.current = false
+    if (!silent) setLoading(true)
+    else setRefreshing(true)
+    setError(null)
+
+    // In production use the same-origin proxy to avoid ad-blocker blocks
+    const rpcUrl = import.meta.env.PROD
+      ? (IS_MAINNET ? '/rpc/arc' : '/rpc/arc-testnet')
+      : chainFact.rpcUrls[0]
+    const client = createPublicClient({
+      chain: activeArcChain,
+      transport: http(rpcUrl),
+    })
+
+    try {
+      const latestBlock = await client.getBlockNumber()
+      if (cancelRef.current) return
+
+      const newLogs: PaymentEvent[] = []
+      let from = lastScannedRef.current + 1n
+
+      while (from <= latestBlock) {
+        if (cancelRef.current) return
+        const to = from + CHUNK - 1n < latestBlock ? from + CHUNK - 1n : latestBlock
+
+        // Retry once with backoff on 429 before surfacing error
+        let pageLogs
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            pageLogs = await client.getLogs({
+              address: AGENT_BUDGET_VAULT.address,
+              event: agentPaymentEvent,
+              fromBlock: from,
+              toBlock: to,
+            })
+            break
+          } catch (e: unknown) {
+            const msg = String(e)
+            const is429 = msg.includes('429') || msg.includes('rate limit') || msg.includes('LimitExceeded')
+            if (is429 && attempt < 2) {
+              await new Promise(r => setTimeout(r, 2_000 * (attempt + 1)))
+              continue
+            }
+            throw e
+          }
+        }
+
+        for (const log of pageLogs ?? []) {
+          newLogs.push({
             jobRef: log.args.jobRef as `0x${string}`,
             recipient: log.args.recipient as string,
             amount: log.args.amount as bigint,
             agent: log.args.agent as string,
             txHash: log.transactionHash,
             blockNumber: log.blockNumber ?? 0n,
-          }))
-          setEvents(parsed.reverse()) // newest first
+          })
         }
-      } catch (_err) {
-        if (!cancelled) setError('Could not load events. RPC may be rate-limiting — try again.')
-      } finally {
-        if (!cancelled) setLoading(false)
+        from = to + 1n
+
+        // Brief pause between chunks to avoid rapid-fire requests
+        if (from <= latestBlock && !cancelRef.current) {
+          await new Promise(r => setTimeout(r, 300))
+        }
       }
+
+      if (!cancelRef.current) {
+        lastScannedRef.current = latestBlock
+        const merged = [...cachedEventsRef.current, ...newLogs]
+        const seen = new Set<string>()
+        const deduped = merged.filter((e) => {
+          const key = `${e.txHash}-${e.jobRef}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        cachedEventsRef.current = deduped
+        setEvents([...deduped].reverse())
+      }
+    } catch (err) {
+      console.error('[HistoryScreen] getLogs failed:', err)
+      if (!cancelRef.current) setError('Could not load events. RPC may be rate-limiting — try again in a moment.')
+    } finally {
+      if (!cancelRef.current) { setLoading(false); setRefreshing(false) }
     }
+  }, [])   // stable ref — no deps change after mount
+
+  useEffect(() => {
     void fetchEvents()
-    return () => { cancelled = true }
-  }, [])
+    // No polling interval — fetches on mount and on manual refresh only.
+    return () => { cancelRef.current = true }
+  }, [fetchEvents])
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.03em' }}>
-          Payment History
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--subtle)' }}>
-          Real onchain AgentPayment events from the vault contract.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.03em' }}>
+            Payment History
+          </h1>
+          <p className="mt-1 text-sm" style={{ color: 'var(--subtle)' }}>
+            Real onchain AgentPayment events · auto-refreshes every 8 s
+          </p>
+        </div>
+        <button
+          onClick={() => { void fetchEvents(true) }}
+          disabled={refreshing || loading}
+          className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40"
+          style={{ background: 'rgba(172,198,233,0.1)', color: 'var(--accent)', border: '1px solid rgba(172,198,233,0.2)' }}
+        >
+          <RefreshCw className={`size-3 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
       {loading && (
         <div className="flex items-center justify-center gap-3 py-12" style={{ color: 'var(--subtle)' }}>
           <Loader2 className="size-5 animate-spin" />
-          <span className="text-sm">Fetching events from Arc Testnet…</span>
+          <span className="text-sm">Fetching events from {activeArcChain.name}…</span>
         </div>
       )}
 
@@ -133,7 +212,7 @@ export function HistoryScreen() {
                   </p>
                 </div>
                 <a
-                  href={`${chainFact.explorerBase}/tx/${ev.txHash}`}
+                  href={`${EXPLORER_BASE}/tx/${ev.txHash}`}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1 text-xs font-semibold shrink-0"

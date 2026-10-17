@@ -1,10 +1,11 @@
+import { useEffect } from 'react'
 import { useAccount, useReadContracts, useSwitchChain } from 'wagmi'
-import { arcTestnet } from 'viem/chains'
+import { activeArcChain } from '../config'
 import { ShieldCheck, Pause, Play, Wallet, ArrowUpRight, User, DollarSign, AlertTriangle } from 'lucide-react'
-import { AGENT_BUDGET_VAULT } from '../contract'
+import { AGENT_BUDGET_VAULT, EXPLORER_BASE } from '../contract'
 import { Amount, usdcDecimalsFor } from '@/onchain-money'
 
-const TARGET_CHAIN = arcTestnet.id
+const TARGET_CHAIN = activeArcChain.id
 
 function formatUsdc(raw: bigint | undefined): string {
   if (raw === undefined) return '—'
@@ -63,7 +64,7 @@ export function OverviewScreen() {
   const { switchChain } = useSwitchChain()
   const wrongChain = isConnected && chainId !== TARGET_CHAIN
 
-  const { data: vaultData, isLoading } = useReadContracts({
+  const { data: vaultData, isLoading, refetch } = useReadContracts({
     contracts: [
       { ...AGENT_BUDGET_VAULT, functionName: 'vaultBalance', chainId: TARGET_CHAIN },
       { ...AGENT_BUDGET_VAULT, functionName: 'totalSpendingLimit', chainId: TARGET_CHAIN },
@@ -74,8 +75,16 @@ export function OverviewScreen() {
       { ...AGENT_BUDGET_VAULT, functionName: 'owner', chainId: TARGET_CHAIN },
       { ...AGENT_BUDGET_VAULT, functionName: 'remainingBudget', chainId: TARGET_CHAIN },
     ],
-    query: { enabled: true },
+    // Poll every 4 s so balances stay fresh without a page refresh
+    query: { refetchInterval: 4_000, refetchOnWindowFocus: true },
   })
+
+  // Re-fetch immediately when the page becomes visible (covers mobile swipe-back)
+  useEffect(() => {
+    const handler = () => { if (document.visibilityState === 'visible') void refetch() }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [refetch])
 
   const rawResults = vaultData?.map((r) => r.result) ?? []
   const vaultBalance = rawResults[0] as bigint | undefined
@@ -101,7 +110,7 @@ export function OverviewScreen() {
             Vault Overview
           </h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--subtle)' }}>
-            Live contract state from Arc Testnet
+            Live contract state from {activeArcChain.name}
           </p>
         </div>
         <div
@@ -130,7 +139,7 @@ export function OverviewScreen() {
               style={{ color: 'var(--accent)' }}
               onClick={() => switchChain({ chainId: TARGET_CHAIN })}
             >
-              Switch to Arc Testnet
+              Switch to {activeArcChain.name}
             </button>
           </span>
         </div>
@@ -151,7 +160,7 @@ export function OverviewScreen() {
           </p>
         </div>
         <a
-          href={`https://explorer.testnet.arc.io/address/${AGENT_BUDGET_VAULT.address}`}
+          href={`${EXPLORER_BASE}/address/${AGENT_BUDGET_VAULT.address}`}
           target="_blank"
           rel="noreferrer"
           className="shrink-0 flex items-center gap-1 text-xs font-semibold"

@@ -1,0 +1,21 @@
+[build]
+  publish = "dist"
+  command = "bunx vite build"
+
+[[redirects]]
+  from   = "/rpc/arc"
+  to     = "https://rpc.mainnet.arc.io/"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/rpc/arc-testnet"
+  to     = "https://rpc.testnet.arc.io/"
+  status = 200
+  force  = true
+
+# SPA fallback — must be last
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

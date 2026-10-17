@@ -1,31 +1,57 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain, useReadContracts } from 'wagmi'
-import { arcTestnet } from 'viem/chains'
+import { activeArcChain } from '../config'
 import { keccak256, toBytes } from 'viem'
-import { Loader2, ArrowUpRight, AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
-import { AGENT_BUDGET_VAULT } from '../contract'
+import { Loader2, ArrowUpRight, AlertTriangle, CheckCircle, XCircle, Wand2, Copy, Check } from 'lucide-react'
+import { toast } from 'sonner'
+import { AGENT_BUDGET_VAULT, EXPLORER_BASE } from '../contract'
 import { parseAmount, Amount, usdcDecimalsFor } from '@/onchain-money'
 
-const TARGET_CHAIN = arcTestnet.id
+/** Generate a unique job reference string: timestamp + 6 random hex chars. */
+function generateJobRef(): string {
+  const ts = Date.now().toString(36).toUpperCase()
+  const rand = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0').toUpperCase()
+  return `JOB-${ts}-${rand}`
+}
+
+const TARGET_CHAIN = activeArcChain.id
 
 function formatUsdc(raw: bigint | undefined): string {
   if (raw === undefined) return '—'
   return Amount.fromRaw(raw, usdcDecimalsFor(TARGET_CHAIN)).toFixed(2)
 }
 
+/** Walk the full viem error cause chain and collect all message text. */
+function collectErrorText(err: unknown): string {
+  const parts: string[] = []
+  let cur: unknown = err
+  while (cur && typeof cur === 'object') {
+    const e = cur as { message?: string; shortMessage?: string; cause?: unknown; details?: string }
+    if (e.shortMessage) parts.push(e.shortMessage)
+    else if (e.message) parts.push(e.message)
+    if (e.details) parts.push(e.details)
+    cur = e.cause
+  }
+  return parts.join(' | ').toLowerCase()
+}
+
 function parseOnchainError(err: unknown): string {
-  const msg = (err as Error)?.message?.toLowerCase() ?? ''
-  if (msg.includes('user rejected') || msg.includes('4001')) return 'Transaction cancelled.'
+  const msg = collectErrorText(err)
+  if (msg.includes('user rejected') || msg.includes('4001') || msg.includes('denied')) return 'Transaction cancelled.'
   if (msg.includes('notauthorizedagent')) return 'Your wallet is not the authorized agent.'
   if (msg.includes('recipientnotapproved')) return 'Recipient is not on the approved list.'
   if (msg.includes('exceedsmaxpaymentamount')) return 'Amount exceeds the per-payment limit.'
   if (msg.includes('exceedstotalspending')) return 'This payment would exceed the total spending limit.'
   if (msg.includes('insufficientvaultbalance')) return 'Vault does not hold enough USDC.'
   if (msg.includes('duplicatejob')) return 'This job reference has already been paid.'
+  if (msg.includes('zerojobref')) return 'Job reference cannot be empty (bytes32 zero).'
   if (msg.includes('zeroamount')) return 'Amount must be greater than zero.'
   if (msg.includes('paused')) return 'Vault is paused. Contact the owner.'
-  if (msg.includes('reverted')) return 'Transaction reverted. Check inputs.'
-  return 'Transaction failed. Please try again.'
+  // Surface the raw revert reason if nothing matched
+  const raw = (err as { shortMessage?: string; message?: string })
+  const display = raw?.shortMessage ?? raw?.message ?? ''
+  if (display && !display.toLowerCase().includes('transaction failed')) return display
+  return 'Transaction reverted. Check inputs and contract state.'
 }
 
 export function AgentPayScreen() {
@@ -38,11 +64,27 @@ export function AgentPayScreen() {
   const [jobRefStr, setJobRefStr] = useState('')
   const [jobDesc, setJobDesc] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [autoGenMode, setAutoGenMode] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleGenerate = useCallback(() => {
+    const ref = generateJobRef()
+    setJobRefStr(ref)
+    setAutoGenMode(true)
+    toast.success(`Job reference generated: ${ref}`, { duration: 2500 })
+  }, [])
+
+  const handleCopyRef = useCallback(async () => {
+    if (!jobRefStr) return
+    await navigator.clipboard.writeText(jobRefStr)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [jobRefStr])
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
-  const { data: vaultData } = useReadContracts({
+  const { data: vaultData, refetch: refetchVault } = useReadContracts({
     contracts: [
       { ...AGENT_BUDGET_VAULT, functionName: 'authorizedAgent', chainId: TARGET_CHAIN },
       { ...AGENT_BUDGET_VAULT, functionName: 'paused', chainId: TARGET_CHAIN },
@@ -50,7 +92,13 @@ export function AgentPayScreen() {
       { ...AGENT_BUDGET_VAULT, functionName: 'remainingBudget', chainId: TARGET_CHAIN },
       { ...AGENT_BUDGET_VAULT, functionName: 'vaultBalance', chainId: TARGET_CHAIN },
     ],
+    query: { refetchInterval: 4_000, refetchOnWindowFocus: true },
   })
+
+  // Immediately refresh vault stats when a payment confirms
+  useEffect(() => {
+    if (isSuccess) void refetchVault()
+  }, [isSuccess, refetchVault])
   const rawAgt = vaultData?.map((r) => r.result) ?? []
   const agent = rawAgt[0] as string | undefined
   const paused = rawAgt[1] as boolean | undefined
@@ -91,6 +139,8 @@ export function AgentPayScreen() {
     setAmount('')
     setJobRefStr('')
     setJobDesc('')
+    setAutoGenMode(false)
+    setCopied(false)
   }
 
   const inputClass = 'w-full rounded-xl px-3 py-2.5 text-sm outline-none'
@@ -180,7 +230,7 @@ export function AgentPayScreen() {
             </div>
           </div>
           <a
-            href={`https://explorer.testnet.arc.io/tx/${txHash}`}
+            href={`${EXPLORER_BASE}/tx/${txHash}`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-2 text-sm font-semibold"
@@ -229,20 +279,91 @@ export function AgentPayScreen() {
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs" style={{ color: 'var(--subtle)' }}>
-              Job reference <span className="opacity-60">(unique string — will be hashed to bytes32)</span>
-            </label>
-            <input
-              className={inputClass}
-              style={inputStyle}
-              placeholder="e.g. invoice-2026-001 or task-abc123"
-              value={jobRefStr}
-              onChange={(e) => setJobRefStr(e.target.value)}
-            />
+          <div className="space-y-1.5">
+            {/* Label row with mode toggle */}
+            <div className="flex items-center justify-between">
+              <label className="text-xs" style={{ color: 'var(--subtle)' }}>
+                Job reference <span className="opacity-60">(hashed to bytes32 onchain)</span>
+              </label>
+              <div className="flex items-center gap-1 rounded-lg p-0.5"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <button
+                  type="button"
+                  onClick={() => { setAutoGenMode(false) }}
+                  className="rounded-md px-2 py-0.5 text-xs font-semibold transition-colors"
+                  style={{
+                    background: !autoGenMode ? 'rgba(172,198,233,0.2)' : 'transparent',
+                    color: !autoGenMode ? 'var(--accent)' : 'var(--subtle)',
+                  }}
+                >
+                  Manual
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition-colors"
+                  style={{
+                    background: autoGenMode ? 'rgba(172,198,233,0.2)' : 'transparent',
+                    color: autoGenMode ? 'var(--accent)' : 'var(--subtle)',
+                  }}
+                >
+                  <Wand2 className="size-3" />Auto
+                </button>
+              </div>
+            </div>
+
+            {/* Input row with generate + copy buttons */}
+            <div className="flex gap-2">
+              <input
+                className={inputClass}
+                style={{
+                  ...inputStyle,
+                  flex: 1,
+                  fontFamily: autoGenMode ? 'var(--font-mono, monospace)' : undefined,
+                  fontSize: autoGenMode ? '0.8rem' : undefined,
+                  opacity: autoGenMode ? 0.85 : 1,
+                }}
+                placeholder="e.g. invoice-2026-001"
+                value={jobRefStr}
+                readOnly={autoGenMode}
+                onChange={(e) => {
+                  if (!autoGenMode) setJobRefStr(e.target.value)
+                }}
+              />
+              {autoGenMode && (
+                <>
+                  <button
+                    type="button"
+                    title="Regenerate"
+                    onClick={handleGenerate}
+                    className="shrink-0 rounded-xl px-3 text-xs font-semibold transition-colors"
+                    style={{ background: 'rgba(172,198,233,0.12)', color: 'var(--accent)', border: '1px solid rgba(172,198,233,0.2)' }}
+                  >
+                    <Wand2 className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Copy reference"
+                    onClick={() => { void handleCopyRef() }}
+                    className="shrink-0 rounded-xl px-3 text-xs font-semibold transition-colors"
+                    style={{ background: copied ? 'rgba(141,216,159,0.15)' : 'rgba(255,255,255,0.07)', color: copied ? 'var(--success)' : 'var(--subtle)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  >
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Live bytes32 preview */}
             {jobRefStr && (
-              <p className="mono text-xs mt-0.5 truncate" style={{ color: 'var(--subtle)' }}>
+              <p className="mono text-xs truncate" style={{ color: 'var(--subtle)' }}>
                 bytes32: {keccak256(toBytes(jobRefStr))}
+              </p>
+            )}
+
+            {autoGenMode && (
+              <p className="text-xs" style={{ color: 'var(--subtle)', opacity: 0.7 }}>
+                Auto-generated from timestamp + random suffix. Click <Wand2 className="inline size-3" /> to regenerate.
               </p>
             )}
           </div>
@@ -272,6 +393,12 @@ export function AgentPayScreen() {
                 <span className="mono">{amount} USDC</span>,{' '}
                 <span className="mono">keccak256("{jobRefStr}")</span>)
               </p>
+              <p style={{ color: 'var(--subtle)' }}>
+                Reference mode:{' '}
+                <span className="font-semibold" style={{ color: autoGenMode ? 'var(--accent)' : 'var(--ink-2)' }}>
+                  {autoGenMode ? 'auto-generated' : 'manual'}
+                </span>
+              </p>
               <p style={{ color: 'var(--subtle)' }}>Contract: {AGENT_BUDGET_VAULT.address}</p>
             </div>
           )}
@@ -295,7 +422,7 @@ export function AgentPayScreen() {
             {!isConnected
               ? 'Connect Wallet'
               : wrongChain
-              ? 'Switch to Arc Testnet'
+              ? `Switch to ${activeArcChain.name}`
               : isPending
               ? <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" />Confirm in wallet…</span>
               : isConfirming

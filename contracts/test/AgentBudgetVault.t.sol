@@ -1130,3 +1130,221 @@ contract FailedTransferTest is Test {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. Frontend deposit-flow scenarios
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @notice Tests that mirror the allowance-check logic in the frontend deposit
+ *         flow (check allowance → skip or send approve tx → send deposit tx).
+ *
+ *         Each test uses a fresh vault (no pre-seeded balance) and a dedicated
+ *         `depositor` address so vault-balance assertions start from zero and
+ *         USDC-balance deltas are unambiguous.
+ *
+ *         The base setUp() is intentionally overridden here to avoid the
+ *         1 000 USDC pre-deposit that every other test contract inherits.
+ */
+contract DepositFlowTest is AgentBudgetVaultTestBase {
+
+    address internal depositor;
+
+    /// @dev Override setUp: deploy a fresh vault with zero balance, add depositor.
+    function setUp() public override {
+        // Deploy mock USDC (6 decimals)
+        usdc = new MockERC20("Mock USDC", "mUSDC", 6);
+
+        // Deploy vault — no initial deposit so vaultBalance() starts at 0
+        vault = new AgentBudgetVault(
+            address(usdc),
+            owner,
+            agent,
+            MAX_PAY,
+            TOT_LIMIT
+        );
+
+        // Dedicated actor for all deposit-flow tests
+        depositor = makeAddr("depositor");
+    }
+
+    // ── DF-1: Sufficient allowance already set → deposit succeeds without a new approve ──
+    /**
+     * Scenario: frontend sees allowance >= amount, skips the approve tx, calls deposit directly.
+     * Assert: vault balance + 100e6, depositor balance − 100e6, remaining allowance = 900e6.
+     */
+    function test_Deposit_SufficientAllowance_NoApprovalNeeded() public {
+        uint256 initialMint    = 1_000e6;
+        uint256 preApproval    = 1_000e6;
+        uint256 depositAmount  = 100e6;
+
+        // Setup: mint to depositor, pre-approve a large allowance
+        usdc.mint(depositor, initialMint);
+        vm.prank(depositor);
+        usdc.approve(address(vault), preApproval);
+
+        uint256 vaultBefore     = vault.vaultBalance();       // 0
+        uint256 depositorBefore = usdc.balanceOf(depositor);  // 1_000e6
+
+        // Action: deposit directly (no new approve needed)
+        vm.prank(depositor);
+        vault.deposit(depositAmount);
+
+        // Assertions
+        assertEq(vault.vaultBalance(),           vaultBefore + depositAmount,         "vault balance should increase");
+        assertEq(usdc.balanceOf(depositor),      depositorBefore - depositAmount,     "depositor balance should decrease");
+        assertEq(usdc.allowance(depositor, address(vault)), preApproval - depositAmount, "remaining allowance should be 900e6");
+    }
+
+    // ── DF-2: Zero allowance → deposit reverts (SafeERC20 / transferFrom fails) ──
+    /**
+     * Scenario: frontend would detect zero allowance and require an approve tx first.
+     *           If deposit is called without approval it must revert.
+     * Assert: vault balance unchanged (0), depositor balance unchanged.
+     */
+    function test_Deposit_InsufficientAllowance_RequiresApprove() public {
+        uint256 initialMint   = 1_000e6;
+        uint256 depositAmount = 100e6;
+
+        // Setup: mint tokens but give NO allowance to the vault
+        usdc.mint(depositor, initialMint);
+        // allowance is 0 by default — no approve call
+
+        uint256 vaultBefore     = vault.vaultBalance();
+        uint256 depositorBefore = usdc.balanceOf(depositor);
+
+        // Action: deposit must revert because transferFrom will fail with 0 allowance
+        vm.prank(depositor);
+        vm.expectRevert();
+        vault.deposit(depositAmount);
+
+        // State must be completely unchanged
+        assertEq(vault.vaultBalance(),      vaultBefore,     "vault balance must be unchanged");
+        assertEq(usdc.balanceOf(depositor), depositorBefore, "depositor balance must be unchanged");
+    }
+
+    // ── DF-3: Full two-step flow — approve then deposit ──────────────────────────
+    /**
+     * Scenario: standard frontend path — approve exact amount, then deposit same amount.
+     * Assert: vault balance = 50e6, allowance = 0 after deposit (fully consumed).
+     */
+    function test_Deposit_ApprovalThenDeposit_TwoStep() public {
+        uint256 amount = 50e6;
+
+        usdc.mint(depositor, amount);
+
+        // Step 1: approve exact amount
+        vm.prank(depositor);
+        usdc.approve(address(vault), amount);
+
+        assertEq(usdc.allowance(depositor, address(vault)), amount, "allowance should equal deposit amount");
+
+        // Step 2: deposit
+        vm.prank(depositor);
+        vault.deposit(amount);
+
+        // Assertions
+        assertEq(vault.vaultBalance(),                      amount, "vault should hold the deposited amount");
+        assertEq(usdc.allowance(depositor, address(vault)), 0,      "allowance should be fully consumed");
+        assertEq(usdc.balanceOf(depositor),                 0,      "depositor should have zero balance remaining");
+    }
+
+    // ── DF-4: Approval succeeds, deposit reverts (insufficient token balance) ────
+    /**
+     * Scenario: depositor approves 200e6 but only holds 100e6 — deposit attempt for
+     *           200e6 must revert because the ERC-20 transferFrom fails (balance check).
+     *           The approval itself is NOT rolled back by the failed deposit.
+     * Assert: vault = 0, depositor = 100e6, allowance still = 200e6.
+     */
+    function test_Deposit_ApprovalSucceeds_DepositReverts_StateRollback() public {
+        uint256 mintAmount    = 100e6;
+        uint256 approvalAmount = 200e6;
+        uint256 depositAttempt = 200e6;
+
+        // Setup: approve for more than the depositor actually holds
+        usdc.mint(depositor, mintAmount);
+        vm.prank(depositor);
+        usdc.approve(address(vault), approvalAmount);
+
+        // Action: try to deposit more than balance — must revert
+        vm.prank(depositor);
+        vm.expectRevert();
+        vault.deposit(depositAttempt);
+
+        // State assertions: only the deposit reverted; approval is unchanged
+        assertEq(vault.vaultBalance(),                       0,              "vault must be empty");
+        assertEq(usdc.balanceOf(depositor),                  mintAmount,     "depositor balance must be unchanged");
+        assertEq(usdc.allowance(depositor, address(vault)),  approvalAmount, "allowance must not be rolled back");
+    }
+
+    // ── DF-5: Zero-amount deposit reverts ────────────────────────────────────────
+    // Already covered by test_Deposit_RevertsOnZeroAmount in DepositTest — skipped per spec.
+
+    // ── DF-6: Exact allowance equals deposit amount → allowance becomes 0 ────────
+    /**
+     * Scenario: approve exactly the deposit amount; after deposit allowance is zero.
+     * Assert: vault balance = depositAmount, remaining allowance = 0.
+     */
+    function test_Deposit_ExactAllowanceUsed() public {
+        uint256 depositAmount = 75e6;
+
+        usdc.mint(depositor, depositAmount);
+        vm.prank(depositor);
+        usdc.approve(address(vault), depositAmount);
+
+        vm.prank(depositor);
+        vault.deposit(depositAmount);
+
+        assertEq(vault.vaultBalance(),                      depositAmount, "vault balance should match deposit");
+        assertEq(usdc.allowance(depositor, address(vault)), 0,             "allowance should be fully consumed");
+    }
+
+    // ── DF-7: Multiple deposits accumulate vault balance correctly ────────────────
+    /**
+     * Scenario: three separate deposits from the same depositor (10e6, 20e6, 30e6).
+     * Assert: final vault balance = 60e6.
+     */
+    function test_Deposit_MultipleDeposits_AccumulateBalance() public {
+        uint256 totalMint = 60e6;
+        usdc.mint(depositor, totalMint);
+        vm.prank(depositor);
+        usdc.approve(address(vault), totalMint);
+
+        vm.prank(depositor);
+        vault.deposit(10e6);
+
+        vm.prank(depositor);
+        vault.deposit(20e6);
+
+        vm.prank(depositor);
+        vault.deposit(30e6);
+
+        assertEq(vault.vaultBalance(),      totalMint, "vault balance should equal sum of all deposits");
+        assertEq(usdc.balanceOf(depositor), 0,         "depositor should have zero balance remaining");
+    }
+
+    // ── DF-8: Over-approval — only the deposit amount is charged ─────────────────
+    /**
+     * Scenario: frontend approves a large allowance (1 000 USDC) but only deposits
+     *           100 USDC. The vault must charge exactly 100 USDC and leave the rest.
+     * Assert: depositor spent exactly 100e6, allowance remaining = 900e6, vault = 100e6.
+     */
+    function test_Deposit_OverApproval_OnlyChargesDepositAmount() public {
+        uint256 mintAmount    = 1_000e6;
+        uint256 approvalAmount = 1_000e6;
+        uint256 depositAmount  = 100e6;
+
+        usdc.mint(depositor, mintAmount);
+        vm.prank(depositor);
+        usdc.approve(address(vault), approvalAmount);
+
+        uint256 depositorBefore = usdc.balanceOf(depositor);
+
+        vm.prank(depositor);
+        vault.deposit(depositAmount);
+
+        assertEq(usdc.balanceOf(depositor),                  depositorBefore - depositAmount,        "depositor spent exactly 100e6");
+        assertEq(usdc.allowance(depositor, address(vault)),  approvalAmount  - depositAmount,        "remaining allowance should be 900e6");
+        assertEq(vault.vaultBalance(),                       depositAmount,                           "vault should hold exactly 100e6");
+    }
+}
